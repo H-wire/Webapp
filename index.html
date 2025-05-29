@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MA Crossover Chart</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <h2>Moving Average Crossover</h2>
+  <form id="tickerForm">
+    <label for="ticker">Enter Ticker:</label>
+    <input type="text" id="ticker" value="AAPL" />
+    <button type="submit">Load Chart</button>
+  </form>
+  <canvas id="chart" width="900" height="400"></canvas>
+
+  <script>
+    const form = document.getElementById('tickerForm');
+    const ctx = document.getElementById('chart').getContext('2d');
+    let chart;
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const ticker = document.getElementById('ticker').value;
+      const res = await fetch(`/api/chartdata?ticker=${ticker}`);
+      const data = await res.json();
+
+      const labels = data.map(d => d.date);
+      const close = data.map(d => d.close);
+      const ma50 = data.map(d => d.ma50);
+      const ma200 = data.map(d => d.ma200);
+
+      if (chart) chart.destroy();
+
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Close', data: close, borderColor: '#0077cc', fill: false },
+            { label: '50-day MA', data: ma50, borderColor: 'green', fill: false },
+            { label: '200-day MA', data: ma200, borderColor: 'red', fill: false }
+          ]
+        },
+        options: {
+          plugins: {
+            title: {
+              display: true,
+              text: `${ticker} - Moving Averages`
+            }
+          },
+          scales: {
+            x: { display: false }
+          }
+        }
+      });
+    });
+
+    // Load default on page load
+    form.dispatchEvent(new Event('submit'));
+  </script>
+</body>
+</html>
