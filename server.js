@@ -78,6 +78,12 @@ app.get('/api/chartdata', async (req, res) => {
     // Filter to requested period while keeping MA values from 5y data
     const filtered = merged.filter(d => dayjs(d.date).isAfter(filterStart) || d.date === filterStart);
 
+st589y-codex/update-moving-average-calculation-logic
+=======
+    // Filter to requested period while keeping MA values from 5y data
+    const filtered = ma200.filter(d => dayjs(d.date).isAfter(filterStart) || d.date === filterStart);
+
+ main
     res.json(filtered);
   } catch (err) {
     console.error(err);
