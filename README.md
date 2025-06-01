@@ -17,16 +17,10 @@ This simple Node.js webapp serves `index.html` and provides API endpoints for ch
 
 ### Chart Data Endpoint
 
-st589y-codex/update-moving-average-calculation-logic
-`GET /api/chartdata` always retrieves five years of historical prices. Moving
-averages for 50 and 200 days are calculated from this full history so the lines
-start immediately when viewing shorter ranges. The response is then filtered to
-the requested period (6M, 1Y, 2Y or 5Y).
-=======
-`GET /api/chartdata` now always retrieves five years of historical prices. The
-server calculates moving averages using this full dataset and then filters the
-results to the requested time range (6M, 1Y, 2Y or 5Y).
-main
+`GET /api/chartdata` always retrieves five years of historical prices. The
+server calculates 50‑day and 200‑day moving averages and a 14‑day RSI from this
+full dataset. The response is then filtered to the requested time range (6M,
+1Y, 2Y or 5Y) before being returned to the client.
 
 ### Analysis Endpoint
 
