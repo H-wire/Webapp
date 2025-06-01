@@ -5,10 +5,44 @@ const dayjs = require('dayjs');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const sqlite3 = require('sqlite3').verbose();
 const app = express();
 const PORT = 3001;
 const LLM_API_URL = process.env.LLM_API_URL || 'http://192.168.1.122:11434/api/chat';
 const LLM_MODEL = process.env.LLM_MODEL || 'qwen3:8b';
+
+// SQLite database setup
+const db = new sqlite3.Database('./stock_data.db');
+
+// Initialize database schema
+function initializeDatabase() {
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      db.run(`CREATE TABLE IF NOT EXISTS stock_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticker TEXT NOT NULL,
+        date TEXT NOT NULL,
+        close REAL NOT NULL,
+        ma50 REAL,
+        ma200 REAL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ticker, date)
+      )`, (err) => {
+        if (err) reject(err);
+      });
+
+      db.run(`CREATE TABLE IF NOT EXISTS data_updates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticker TEXT NOT NULL,
+        last_update DATE NOT NULL,
+        UNIQUE(ticker)
+      )`, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  });
+}
 
 // In-memory cache for LLM responses
 const llmCache = new Map();
@@ -54,52 +88,79 @@ function saveCacheToFile() {
   }
 }
 
-// Load cache on startup
-loadCacheFromFile();
-
-// OpenAI API logging function
-function logToFile(type, data) {
-  const timestamp = new Date().toISOString();
-  const logEntry = `\n[${timestamp}] ${type}:\n${JSON.stringify(data, null, 2)}\n${'='.repeat(80)}\n`;
-  fs.appendFileSync('openai-api.log', logEntry);
+// Database helper functions
+function needsUpdate(ticker) {
+  return new Promise((resolve, reject) => {
+    const today = dayjs().format('YYYY-MM-DD');
+    db.get(`SELECT last_update FROM data_updates WHERE ticker = ?`, [ticker], (err, row) => {
+      if (err) reject(err);
+      else resolve(!row || row.last_update !== today);
+    });
+  });
 }
 
-// Middleware to parse JSON bodies
-app.use(express.json());
+function getStoredData(ticker, period) {
+  return new Promise((resolve, reject) => {
+    const now = dayjs();
+    let filterStart;
+    
+    switch (period) {
+      case '6M':
+        filterStart = now.subtract(6, 'month').format('YYYY-MM-DD');
+        break;
+      case '1Y':
+        filterStart = now.subtract(1, 'year').format('YYYY-MM-DD');
+        break;
+      case '2Y':
+        filterStart = now.subtract(2, 'year').format('YYYY-MM-DD');
+        break;
+      case '5Y':
+        filterStart = now.subtract(5, 'year').format('YYYY-MM-DD');
+        break;
+      default:
+        filterStart = now.subtract(1, 'year').format('YYYY-MM-DD');
+    }
 
-app.use(express.static('public'));
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+    db.all(`SELECT date, close, ma50, ma200 FROM stock_data 
+            WHERE ticker = ? AND date >= ? 
+            ORDER BY date ASC`, [ticker, filterStart], (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
+}
 
-app.get('/api/chartdata', async (req, res) => {
-  const ticker = req.query.ticker || 'AAPL';
-  const period = req.query.period || '1Y';
+function storeStockData(ticker, data) {
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      const stmt = db.prepare(`INSERT OR REPLACE INTO stock_data 
+                              (ticker, date, close, ma50, ma200) 
+                              VALUES (?, ?, ?, ?, ?)`);
+      
+      data.forEach(row => {
+        stmt.run([ticker, row.date, row.close, row.ma50, row.ma200]);
+      });
+      
+      stmt.finalize((err) => {
+        if (err) reject(err);
+        else {
+          const today = dayjs().format('YYYY-MM-DD');
+          db.run(`INSERT OR REPLACE INTO data_updates (ticker, last_update) VALUES (?, ?)`, 
+                 [ticker, today], (err) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        }
+      });
+    });
+  });
+}
 
-  // Always fetch 5 years of data for consistent MA calculations
-  const now = dayjs();
-  const fetchStart = now.subtract(5, 'year').format('YYYY-MM-DD');
-
-  // Determine the period range to return to the client
-  let filterStart;
-  switch (period) {
-    case '6M':
-      filterStart = now.subtract(6, 'month').format('YYYY-MM-DD');
-      break;
-    case '1Y':
-      filterStart = now.subtract(1, 'year').format('YYYY-MM-DD');
-      break;
-    case '2Y':
-      filterStart = now.subtract(2, 'year').format('YYYY-MM-DD');
-      break;
-    case '5Y':
-      filterStart = fetchStart;
-      break;
-    default:
-      filterStart = now.subtract(1, 'year').format('YYYY-MM-DD');
-  }
-
+async function fetchAndStoreData(ticker) {
   try {
+    const now = dayjs();
+    const fetchStart = now.subtract(5, 'year').format('YYYY-MM-DD');
+
     const response = await axios.get(`https://api.tiingo.com/tiingo/daily/${ticker}/prices`, {
       params: {
         startDate: fetchStart,
@@ -124,16 +185,128 @@ app.get('/api/chartdata', async (req, res) => {
     const ma50 = calculateMA(data, 50);
     const ma200 = calculateMA(data, 200);
 
-    // Merge MA values so both are based on the full 5y history
     const merged = data.map((d, idx) => ({
       ...d,
       ma50: ma50[idx].ma50,
       ma200: ma200[idx].ma200
     }));
 
-    // Filter to requested period while keeping MA values from 5y data
-    const filtered = merged.filter(d => dayjs(d.date).isAfter(filterStart) || d.date === filterStart);
-    res.json(filtered);
+    await storeStockData(ticker, merged);
+    console.log(`Updated data for ${ticker}`);
+    return merged;
+  } catch (error) {
+    console.error(`Failed to fetch data for ${ticker}:`, error.message);
+    throw error;
+  }
+}
+
+// Daily update scheduler
+function getAllTickers() {
+  return new Promise((resolve, reject) => {
+    db.all(`SELECT DISTINCT ticker FROM data_updates`, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows.map(row => row.ticker));
+    });
+  });
+}
+
+async function runDailyUpdates() {
+  try {
+    const tickers = await getAllTickers();
+    console.log(`Running daily updates for ${tickers.length} tickers`);
+    
+    for (const ticker of tickers) {
+      try {
+        await fetchAndStoreData(ticker);
+        console.log(`Updated ${ticker}`);
+        // Add delay between requests to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } catch (error) {
+        console.error(`Failed to update ${ticker}:`, error.message);
+      }
+    }
+    
+    console.log('Daily updates completed');
+  } catch (error) {
+    console.error('Daily update process failed:', error);
+  }
+}
+
+// Schedule daily updates at 6 AM UTC
+function scheduleDailyUpdates() {
+  const now = new Date();
+  const nextUpdate = new Date();
+  nextUpdate.setUTCHours(6, 0, 0, 0);
+  
+  // If it's already past 6 AM today, schedule for tomorrow
+  if (now.getTime() > nextUpdate.getTime()) {
+    nextUpdate.setUTCDate(nextUpdate.getUTCDate() + 1);
+  }
+  
+  const timeUntilUpdate = nextUpdate.getTime() - now.getTime();
+  console.log(`Next data update scheduled for: ${nextUpdate.toISOString()}`);
+  
+  setTimeout(() => {
+    runDailyUpdates();
+    // Schedule the next update (24 hours from now)
+    setInterval(runDailyUpdates, 24 * 60 * 60 * 1000);
+  }, timeUntilUpdate);
+}
+
+// Initialize database and load cache on startup
+(async () => {
+  try {
+    await initializeDatabase();
+    console.log('Database initialized');
+    loadCacheFromFile();
+    scheduleDailyUpdates();
+  } catch (error) {
+    console.error('Failed to initialize database:', error);
+  }
+})();
+
+// OpenAI API logging function
+function logToFile(type, data) {
+  const timestamp = new Date().toISOString();
+  const logEntry = `\n[${timestamp}] ${type}:\n${JSON.stringify(data, null, 2)}\n${'='.repeat(80)}\n`;
+  fs.appendFileSync('openai-api.log', logEntry);
+}
+
+// Middleware to parse JSON bodies
+app.use(express.json());
+
+app.use(express.static('public'));
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/api/chartdata', async (req, res) => {
+  const ticker = req.query.ticker || 'AAPL';
+  const period = req.query.period || '1Y';
+
+  try {
+    // Check if we need to update data for this ticker
+    const needsDataUpdate = await needsUpdate(ticker);
+    
+    if (needsDataUpdate) {
+      console.log(`Fetching fresh data for ${ticker}`);
+      await fetchAndStoreData(ticker);
+    } else {
+      console.log(`Using cached data for ${ticker}`);
+    }
+
+    // Get data from database
+    const data = await getStoredData(ticker, period);
+    
+    if (data.length === 0) {
+      // If no data in database, fetch and store
+      console.log(`No data found for ${ticker}, fetching fresh data`);
+      await fetchAndStoreData(ticker);
+      const freshData = await getStoredData(ticker, period);
+      res.json(freshData);
+    } else {
+      res.json(data);
+    }
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch or process data.' });
