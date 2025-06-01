@@ -1,6 +1,6 @@
 # Webapp
 
-This simple Node.js webapp serves `index.html` and provides an API endpoint for chart data. The server depends on the following packages:
+This simple Node.js webapp serves `index.html` and provides API endpoints for chart data and LLM-based analysis. The server depends on the following packages:
 
 - `dotenv`
 - `express`
@@ -11,6 +11,11 @@ This simple Node.js webapp serves `index.html` and provides an API endpoint for 
 
 1. Make sure you have Node.js installed.
 2. Run `npm install` to install dependencies.
-3. Create a `.env` file with your `TIINGO_API_KEY` variable.
+3. Create a `.env` file with your `TIINGO_API_KEY` variable. Optionally add `LLM_API_URL` and `LLM_MODEL` to configure the analysis endpoint.
 4. Start the server with `npm start` and open `http://localhost:3000` in your browser.
+5. Run `npm test` to execute the built-in tests.
+
+### Analysis Endpoint
+
+`POST /api/analyze` sends chart data and parameters to a local OpenAI-compatible API (defaults to `http://192.168.1.122:11434/v1/chat/completions` using model `qwen3:8b`) for probabilistic analysis of golden cross events. The request body should include `ticker`, `goldenCrossDate`, `increasePercent`, `sector` and `data`.
 
