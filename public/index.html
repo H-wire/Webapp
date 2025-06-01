@@ -376,8 +376,8 @@
                     </form>
                     
                     <div class="preset-stocks">
-                        <button class="preset-btn" data-ticker="VOLV-B.ST">VOLV-B</button>
-                        <button class="preset-btn" data-ticker="ERIC-B.ST">ERIC-B</button>
+                        <button class="preset-btn" data-ticker="GOOG">GOOGLE</button>
+                        <button class="preset-btn" data-ticker="AMZN">AMAZON</button>
                         <button class="preset-btn" data-ticker="ASSA-B.ST">ASSA-B</button>
                         <button class="preset-btn" data-ticker="SEB-A.ST">SEB-A</button>
                         <button class="preset-btn" data-ticker="AAPL">AAPL</button>
@@ -456,6 +456,11 @@
                                 <div>Trend Direction</div>
                                 <div id="trendSignal" class="signal-weak">-</div>
                             </div>
+                        </div>
+                        
+                        <div id="aiAnalysis" style="margin-top: 20px; padding: 15px; background: #374151; border-radius: 6px; display: none;">
+                            <div style="color: #9ca3af; font-size: 0.9em; margin-bottom: 10px;">AI Analysis</div>
+                            <div id="aiAnalysisContent" style="font-size: 0.9em; line-height: 1.4;"></div>
                         </div>
                     </div>
                     
@@ -633,6 +638,10 @@
 
                 // Update analysis
                 updateAnalysis(data, ticker);
+                
+                // Perform AI analysis for every stock load
+                console.log('Triggering AI analysis for:', ticker);
+                performAIAnalysis(data, ticker);
 
             } catch (err) {
                 console.error(err);
@@ -742,7 +751,7 @@
                 
                 if (prev.ma50 && prev.ma200 && curr.ma50 && curr.ma200) {
                     if (prev.ma50 <= prev.ma200 && curr.ma50 > curr.ma200) {
-                        return { status: 'active' };
+                        return { status: 'active', date: curr.date };
                     }
                 }
             }
@@ -822,6 +831,68 @@
                 </div>
             `;
             alertList.innerHTML = alertHtml + alertList.innerHTML;
+        }
+
+        async function performAIAnalysis(data, ticker) {
+            console.log('performAIAnalysis called with:', ticker, 'data length:', data.length);
+            
+            const aiAnalysisDiv = document.getElementById('aiAnalysis');
+            const aiAnalysisContent = document.getElementById('aiAnalysisContent');
+            
+            // Show loading state
+            aiAnalysisDiv.style.display = 'block';
+            aiAnalysisContent.innerHTML = '<div style="color: #9ca3af;">Analyzing stock with AI...</div>';
+            
+            try {
+                // Check for golden cross
+                const goldenCross = checkGoldenCross(data);
+                const goldenCrossDate = goldenCross.status === 'active' ? goldenCross.date : null;
+                
+                // Prepare data for analysis
+                const analysisData = {
+                    ticker,
+                    goldenCrossDate,
+                    increasePercent: 10, // Looking for 10% increase
+                    sector: 'General', // You could enhance this to determine sector
+                    data: data.slice(-30) // Last 30 days of data
+                };
+                
+                console.log('Sending analysis request:', analysisData);
+                
+                const response = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(analysisData)
+                });
+                
+                console.log('Response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                // Display the AI analysis
+                if (result.choices && result.choices[0] && result.choices[0].message) {
+                    aiAnalysisContent.innerHTML = `<div style="white-space: pre-wrap;">${result.choices[0].message.content}</div>`;
+                } else if (result.error) {
+                    aiAnalysisContent.innerHTML = `<div style="color: #f87171;">Analysis error: ${result.error}</div>`;
+                } else {
+                    aiAnalysisContent.innerHTML = `<div style="color: #f87171;">Unexpected response format</div>`;
+                }
+                
+                // Show alert about analysis completion
+                const analysisType = goldenCrossDate ? 'Golden cross analysis' : 'Technical analysis';
+                showAlert('AI Analysis Complete', `${analysisType} completed for ${ticker}`);
+                
+            } catch (error) {
+                console.error('AI Analysis Error:', error);
+                aiAnalysisContent.innerHTML = `<div style="color: #f87171;">Failed to perform AI analysis: ${error.message}</div>`;
+                showAlert('Analysis Error', 'Failed to connect to AI analysis service');
+            }
         }
 
         // Load default on page load

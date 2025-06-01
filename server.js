@@ -77,13 +77,6 @@ app.get('/api/chartdata', async (req, res) => {
 
     // Filter to requested period while keeping MA values from 5y data
     const filtered = merged.filter(d => dayjs(d.date).isAfter(filterStart) || d.date === filterStart);
-
-st589y-codex/update-moving-average-calculation-logic
-=======
-    // Filter to requested period while keeping MA values from 5y data
-    const filtered = ma200.filter(d => dayjs(d.date).isAfter(filterStart) || d.date === filterStart);
-
- main
     res.json(filtered);
   } catch (err) {
     console.error(err);
@@ -101,7 +94,9 @@ app.post('/api/analyze', async (req, res) => {
       messages: [
         { role: 'system', content: 'You are a financial analysis assistant.' },
         { role: 'user', content: prompt }
-      ]
+      ],
+      "think": false,
+      "stream": false
     });
     res.json(response.data);
   } catch (err) {
