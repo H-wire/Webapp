@@ -2,14 +2,39 @@ require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const dayjs = require('dayjs');
+const path = require('path');
 const app = express();
-const PORT = 3000;
+const PORT = 3001;
 
 app.use(express.static('public'));
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 app.get('/api/chartdata', async (req, res) => {
   const ticker = req.query.ticker || 'AAPL';
-  const startDate = '2022-01-01';
+  const period = req.query.period || '1Y';
+  
+  // Calculate start date based on period
+  const now = dayjs();
+  let startDate;
+  
+  switch(period) {
+    case '6M':
+      startDate = now.subtract(6, 'month').format('YYYY-MM-DD');
+      break;
+    case '1Y':
+      startDate = now.subtract(1, 'year').format('YYYY-MM-DD');
+      break;
+    case '2Y':
+      startDate = now.subtract(2, 'year').format('YYYY-MM-DD');
+      break;
+    case '5Y':
+      startDate = now.subtract(5, 'year').format('YYYY-MM-DD');
+      break;
+    default:
+      startDate = now.subtract(1, 'year').format('YYYY-MM-DD');
+  }
 
   try {
     const response = await axios.get(`https://api.tiingo.com/tiingo/daily/${ticker}/prices`, {
