@@ -5,6 +5,11 @@ const dayjs = require('dayjs');
 const path = require('path');
 const app = express();
 const PORT = 3001;
+const LLM_API_URL = process.env.LLM_API_URL || 'http://192.168.1.122:11434/v1/chat/completions';
+const LLM_MODEL = process.env.LLM_MODEL || 'qwen3:8b';
+
+// Middleware to parse JSON bodies
+app.use(express.json());
 
 app.use(express.static('public'));
 app.get('/', (req, res) => {
@@ -68,4 +73,29 @@ app.get('/api/chartdata', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+app.post('/api/analyze', async (req, res) => {
+  const { ticker, goldenCrossDate, increasePercent, sector, data } = req.body;
+  const prompt = `Given a golden cross occurred on ${goldenCrossDate} for ${ticker}, analyze the probability that the stock increases ${increasePercent}% in 30, 60 and 90 days. Group results by sector tag ${sector} and discuss false positives. Use the following data: ${JSON.stringify(data)}`;
+
+  try {
+    const response = await axios.post(LLM_API_URL, {
+      model: LLM_MODEL,
+      messages: [
+        { role: 'system', content: 'You are a financial analysis assistant.' },
+        { role: 'user', content: prompt }
+      ]
+    });
+    res.json(response.data);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to analyze data.' });
+  }
+});
+
+if (require.main === module) {
+  app.listen(PORT, () =>
+    console.log(`Server running on http://localhost:${PORT}`)
+  );
+}
+
+module.exports = app;
