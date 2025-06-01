@@ -15,6 +15,12 @@ This simple Node.js webapp serves `index.html` and provides API endpoints for ch
 4. Start the server with `npm start` and open `http://localhost:3000` in your browser.
 5. Run `npm test` to execute the built-in tests.
 
+### Chart Data Endpoint
+
+`GET /api/chartdata` now always retrieves five years of historical prices. The
+server calculates moving averages using this full dataset and then filters the
+results to the requested time range (6M, 1Y, 2Y or 5Y).
+
 ### Analysis Endpoint
 
 `POST /api/analyze` sends chart data and parameters to a local OpenAI-compatible API (defaults to `http://192.168.1.122:11434/v1/chat/completions` using model `qwen3:8b`) for probabilistic analysis of golden cross events. The request body should include `ticker`, `goldenCrossDate`, `increasePercent`, `sector` and `data`.

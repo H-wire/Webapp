@@ -19,32 +19,34 @@ app.get('/', (req, res) => {
 app.get('/api/chartdata', async (req, res) => {
   const ticker = req.query.ticker || 'AAPL';
   const period = req.query.period || '1Y';
-  
-  // Calculate start date based on period
+
+  // Always fetch 5 years of data for consistent MA calculations
   const now = dayjs();
-  let startDate;
-  
-  switch(period) {
+  const fetchStart = now.subtract(5, 'year').format('YYYY-MM-DD');
+
+  // Determine the period range to return to the client
+  let filterStart;
+  switch (period) {
     case '6M':
-      startDate = now.subtract(6, 'month').format('YYYY-MM-DD');
+      filterStart = now.subtract(6, 'month').format('YYYY-MM-DD');
       break;
     case '1Y':
-      startDate = now.subtract(1, 'year').format('YYYY-MM-DD');
+      filterStart = now.subtract(1, 'year').format('YYYY-MM-DD');
       break;
     case '2Y':
-      startDate = now.subtract(2, 'year').format('YYYY-MM-DD');
+      filterStart = now.subtract(2, 'year').format('YYYY-MM-DD');
       break;
     case '5Y':
-      startDate = now.subtract(5, 'year').format('YYYY-MM-DD');
+      filterStart = fetchStart;
       break;
     default:
-      startDate = now.subtract(1, 'year').format('YYYY-MM-DD');
+      filterStart = now.subtract(1, 'year').format('YYYY-MM-DD');
   }
 
   try {
     const response = await axios.get(`https://api.tiingo.com/tiingo/daily/${ticker}/prices`, {
       params: {
-        startDate,
+        startDate: fetchStart,
         resampleFreq: 'daily',
         format: 'json',
         token: process.env.TIINGO_API_KEY
@@ -66,7 +68,10 @@ app.get('/api/chartdata', async (req, res) => {
     const ma50 = calculateMA(data, 50);
     const ma200 = calculateMA(ma50, 200);
 
-    res.json(ma200);
+    // Filter to requested period while keeping MA values from 5y data
+    const filtered = ma200.filter(d => dayjs(d.date).isAfter(filterStart) || d.date === filterStart);
+
+    res.json(filtered);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch or process data.' });
