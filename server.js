@@ -66,11 +66,24 @@ app.get('/api/chartdata', async (req, res) => {
       });
 
     const ma50 = calculateMA(data, 50);
-    const ma200 = calculateMA(ma50, 200);
+    const ma200 = calculateMA(data, 200);
 
+    // Merge MA values so both are based on the full 5y history
+    const merged = data.map((d, idx) => ({
+      ...d,
+      ma50: ma50[idx].ma50,
+      ma200: ma200[idx].ma200
+    }));
+
+    // Filter to requested period while keeping MA values from 5y data
+    const filtered = merged.filter(d => dayjs(d.date).isAfter(filterStart) || d.date === filterStart);
+
+st589y-codex/update-moving-average-calculation-logic
+=======
     // Filter to requested period while keeping MA values from 5y data
     const filtered = ma200.filter(d => dayjs(d.date).isAfter(filterStart) || d.date === filterStart);
 
+ main
     res.json(filtered);
   } catch (err) {
     console.error(err);
