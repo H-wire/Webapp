@@ -476,7 +476,12 @@
                                 <div style="color: #9ca3af; font-size: 0.9em;">MA200</div>
                                 <div style="font-weight: bold;" id="latestMA200">-</div>
                             </div>
-                            
+
+                            <div style="margin-bottom: 15px;">
+                                <div style="color: #9ca3af; font-size: 0.9em;">RSI14</div>
+                                <div style="font-weight: bold;" id="latestRSI">-</div>
+                            </div>
+
                             <div>
                                 <div style="color: #9ca3af; font-size: 0.9em;">Gap (MA50-MA200)</div>
                                 <div style="font-weight: bold;" id="maGap">-</div>
@@ -557,6 +562,7 @@
                 const close = data.map(d => d.close);
                 const ma50 = data.map(d => d.ma50);
                 const ma200 = data.map(d => d.ma200);
+                const rsi = data.map(d => d.rsi14);
 
                 if (chart) chart.destroy();
 
@@ -585,15 +591,26 @@
                                 pointHoverRadius: 4,
                                 borderWidth: 2
                             },
-                            { 
-                                label: '200-day MA', 
-                                data: ma200, 
-                                borderColor: '#f87171', 
+                            {
+                                label: '200-day MA',
+                                data: ma200,
+                                borderColor: '#f87171',
                                 backgroundColor: '#f87171',
                                 fill: false,
                                 pointRadius: 0,
                                 pointHoverRadius: 4,
                                 borderWidth: 2
+                            },
+                            {
+                                label: '14-day RSI',
+                                data: rsi,
+                                borderColor: '#38bdf8',
+                                backgroundColor: '#38bdf8',
+                                fill: false,
+                                pointRadius: 0,
+                                pointHoverRadius: 4,
+                                borderWidth: 2,
+                                yAxisID: 'y1'
                             }
                         ]
                     },
@@ -613,7 +630,7 @@
                             }
                         },
                         scales: {
-                            x: { 
+                            x: {
                                 display: false,
                                 grid: {
                                     color: '#374151'
@@ -625,6 +642,17 @@
                                 },
                                 ticks: {
                                     color: '#9ca3af'
+                                }
+                            },
+                            y1: {
+                                position: 'right',
+                                min: 0,
+                                max: 100,
+                                grid: {
+                                    drawOnChartArea: false
+                                },
+                                ticks: {
+                                    color: '#60a5fa'
                                 }
                             }
                         }
@@ -669,6 +697,9 @@
             if (latest.ma200) {
                 document.getElementById('latestMA200').textContent = `$${latest.ma200.toFixed(2)}`;
             }
+            if (latest.rsi14) {
+                document.getElementById('latestRSI').textContent = `${latest.rsi14.toFixed(2)}`;
+            }
 
             // Calculate and display MA gap
             if (latest.ma50 && latest.ma200) {
@@ -683,6 +714,19 @@
 
             // Update quick stats
             updateQuickStats(data);
+
+            // Send data to LLM analysis endpoint
+            fetch('/api/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ticker,
+                    goldenCrossDate: latest.date,
+                    increasePercent: 10,
+                    sector: 'N/A',
+                    data
+                })
+            }).then(res => res.json()).then(console.log).catch(console.error);
         }
 
         function updateTechnicalSignals(data) {

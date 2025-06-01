@@ -68,22 +68,53 @@ app.get('/api/chartdata', async (req, res) => {
     const ma50 = calculateMA(data, 50);
     const ma200 = calculateMA(data, 200);
 
-    // Merge MA values so both are based on the full 5y history
+    const calculateRSI = (arr, window = 14) => {
+      const result = [];
+      let avgGain = 0;
+      let avgLoss = 0;
+      for (let i = 0; i < arr.length; i++) {
+        if (i === 0) {
+          result.push({ ...arr[i], rsi14: null });
+          continue;
+        }
+        const change = arr[i].close - arr[i - 1].close;
+        const gain = Math.max(change, 0);
+        const loss = Math.max(-change, 0);
+
+        if (i <= window) {
+          avgGain += gain;
+          avgLoss += loss;
+          if (i === window) {
+            avgGain /= window;
+            avgLoss /= window;
+            const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+            result.push({ ...arr[i], rsi14: 100 - 100 / (1 + rs) });
+          } else {
+            result.push({ ...arr[i], rsi14: null });
+          }
+        } else {
+          avgGain = (avgGain * (window - 1) + gain) / window;
+          avgLoss = (avgLoss * (window - 1) + loss) / window;
+          const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+          result.push({ ...arr[i], rsi14: 100 - 100 / (1 + rs) });
+        }
+      }
+      return result;
+    };
+
+    const rsi14 = calculateRSI(data, 14);
+
+    // Merge indicator values so all are based on the full 5y history
     const merged = data.map((d, idx) => ({
       ...d,
       ma50: ma50[idx].ma50,
-      ma200: ma200[idx].ma200
+      ma200: ma200[idx].ma200,
+      rsi14: rsi14[idx].rsi14
     }));
 
-    // Filter to requested period while keeping MA values from 5y data
+    // Filter to requested period while keeping indicator values from 5y data
     const filtered = merged.filter(d => dayjs(d.date).isAfter(filterStart) || d.date === filterStart);
 
-st589y-codex/update-moving-average-calculation-logic
-=======
-    // Filter to requested period while keeping MA values from 5y data
-    const filtered = ma200.filter(d => dayjs(d.date).isAfter(filterStart) || d.date === filterStart);
-
- main
     res.json(filtered);
   } catch (err) {
     console.error(err);
