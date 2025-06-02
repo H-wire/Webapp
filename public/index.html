@@ -64,6 +64,11 @@
             50% { opacity: 0.5; }
         }
         
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
         .sidebar-section {
             padding: 20px;
             flex: 1;
@@ -453,6 +458,11 @@
                             </div>
                             
                             <div class="signal-item">
+                                <div>RSI Signal (14-day)</div>
+                                <div id="rsiSignal" class="signal-weak">-</div>
+                            </div>
+                            
+                            <div class="signal-item">
                                 <div>Trend Direction</div>
                                 <div id="trendSignal" class="signal-weak">-</div>
                             </div>
@@ -486,6 +496,23 @@
                                 <div style="color: #9ca3af; font-size: 0.9em;">Gap (MA50-MA200)</div>
                                 <div style="font-weight: bold;" id="maGap">-</div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    <div class="analysis-panel">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                            <div class="section-title" style="margin-bottom: 0;">LLM Analysis</div>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <div id="llmTimestamp" style="color: #9ca3af; font-size: 0.8em;">-</div>
+                                <button id="reloadLlmBtn" class="load-btn" style="padding: 4px 8px; font-size: 0.8em;" disabled>
+                                    <span>↻</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div id="llmAnalysis" style="min-height: 100px; max-height: 300px; overflow-y: auto; padding: 15px; background: #111827; border-radius: 6px; border: 1px solid #374151;">
+                            <div style="color: #9ca3af; font-style: italic;">Load a stock to see LLM analysis...</div>
                         </div>
                     </div>
                 </div>
@@ -715,7 +742,11 @@
             // Update quick stats
             updateQuickStats(data);
 
+            // Enable reload button now that we have data
+            document.getElementById('reloadLlmBtn').disabled = false;
+
             // Send data to LLM analysis endpoint
+            updateLLMAnalysis('Requesting LLM analysis...', true);
             fetch('/api/analyze', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -726,7 +757,41 @@
                     sector: 'N/A',
                     data
                 })
-            }).then(res => res.json()).then(console.log).catch(console.error);
+            })
+            .then(res => res.json())
+            .then(response => {
+                if (response.choices && response.choices[0] && response.choices[0].message) {
+                    updateLLMAnalysis(response.choices[0].message.content, false);
+                } else {
+                    updateLLMAnalysis('LLM analysis completed, but response format was unexpected.', false);
+                }
+            })
+            .catch(err => {
+                console.error('LLM Analysis Error:', err);
+                updateLLMAnalysis('Failed to get LLM analysis. Please check your LLM configuration.', false);
+            });
+        }
+
+        function analyzeRSI(data) {
+            const latest = data[data.length - 1];
+            const recent = data.slice(-5); // Last 5 days for RSI trend
+            
+            if (!latest.rsi14) return { signal: 'NO DATA', strength: 'signal-weak' };
+            
+            const currentRSI = latest.rsi14;
+            
+            // RSI signal classification
+            if (currentRSI >= 70) {
+                return { signal: 'OVERBOUGHT', strength: 'signal-negative' };
+            } else if (currentRSI <= 30) {
+                return { signal: 'OVERSOLD', strength: 'signal-strong' };
+            } else if (currentRSI >= 60) {
+                return { signal: 'APPROACHING OVERBOUGHT', strength: 'signal-weak' };
+            } else if (currentRSI <= 40) {
+                return { signal: 'APPROACHING OVERSOLD', strength: 'signal-weak' };
+            } else {
+                return { signal: 'NEUTRAL', strength: 'signal-weak' };
+            }
         }
 
         function updateTechnicalSignals(data) {
@@ -738,6 +803,7 @@
                 const ma50Signal = document.getElementById('ma50Signal');
                 const ma200Signal = document.getElementById('ma200Signal');
                 const goldenCrossSignal = document.getElementById('goldenCrossSignal');
+                const rsiSignal = document.getElementById('rsiSignal');
                 const trendSignal = document.getElementById('trendSignal');
                 
                 if (latest.ma50 > latest.ma200) {
@@ -760,6 +826,11 @@
                     goldenCrossSignal.textContent = 'NO SIGNAL';
                     goldenCrossSignal.className = 'signal-weak';
                 }
+                
+                // RSI analysis
+                const rsiAnalysis = analyzeRSI(data);
+                rsiSignal.textContent = rsiAnalysis.signal;
+                rsiSignal.className = rsiAnalysis.strength;
                 
                 // Trend analysis
                 const trend = analyzeTrend(recent);
@@ -857,6 +928,75 @@
             document.getElementById('quickStats').innerHTML = statsHtml;
         }
 
+        function updateLLMAnalysis(content, isLoading = false) {
+            const analysisDiv = document.getElementById('llmAnalysis');
+            const timestampDiv = document.getElementById('llmTimestamp');
+            const reloadBtn = document.getElementById('reloadLlmBtn');
+            
+            if (isLoading) {
+                analysisDiv.innerHTML = `
+                    <div style="color: #fbbf24; font-style: italic; display: flex; align-items: center;">
+                        <div style="width: 16px; height: 16px; border: 2px solid #fbbf24; border-top: 2px solid transparent; border-radius: 50%; animation: spin 1s linear infinite; margin-right: 8px;"></div>
+                        ${content}
+                    </div>
+                `;
+                reloadBtn.disabled = true;
+                reloadBtn.innerHTML = '<span>⟳</span>';
+            } else {
+                // Format the content with basic markdown-like formatting
+                let formattedContent = content
+                    .replace(/\*\*(.*?)\*\*/g, '<strong style="color: #fbbf24;">$1</strong>')
+                    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                    .replace(/\n\n/g, '</p><p style="margin-bottom: 10px;">')
+                    .replace(/\n/g, '<br>');
+                
+                analysisDiv.innerHTML = `<p style="margin-bottom: 10px; line-height: 1.5; color: #e5e7eb;">${formattedContent}</p>`;
+                
+                // Update timestamp
+                const now = new Date();
+                timestampDiv.textContent = now.toLocaleTimeString();
+                
+                // Enable reload button
+                reloadBtn.disabled = false;
+                reloadBtn.innerHTML = '<span>↻</span>';
+            }
+        }
+
+        function triggerLLMAnalysis(bypassCache = false) {
+            if (!currentData || !currentTicker) {
+                alert('Please load stock data first');
+                return;
+            }
+
+            const loadingMessage = bypassCache ? 'Requesting fresh LLM analysis...' : 'Requesting LLM analysis...';
+            updateLLMAnalysis(loadingMessage, true);
+            
+            fetch('/api/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ticker: currentTicker,
+                    goldenCrossDate: currentData[currentData.length - 1].date,
+                    increasePercent: 10,
+                    sector: 'N/A',
+                    data: currentData,
+                    bypassCache: bypassCache
+                })
+            })
+            .then(res => res.json())
+            .then(response => {
+                if (response.choices && response.choices[0] && response.choices[0].message) {
+                    updateLLMAnalysis(response.choices[0].message.content, false);
+                } else {
+                    updateLLMAnalysis('LLM analysis completed, but response format was unexpected.', false);
+                }
+            })
+            .catch(err => {
+                console.error('LLM Analysis Error:', err);
+                updateLLMAnalysis('Failed to get LLM analysis. Please check your LLM configuration.', false);
+            });
+        }
+
         function showAlert(title, description) {
             const alertList = document.getElementById('alertList');
             const alertHtml = `
@@ -867,6 +1007,9 @@
             `;
             alertList.innerHTML = alertHtml + alertList.innerHTML;
         }
+
+        // Reload LLM analysis button - bypass cache
+        document.getElementById('reloadLlmBtn').addEventListener('click', () => triggerLLMAnalysis(true));
 
         // Load default on page load
         window.addEventListener('load', () => {
