@@ -10,6 +10,10 @@ const PORT = 3001;
 const LLM_API_URL = process.env.LLM_API_URL || 'http://192.168.1.122:11434/api/chat';
 const LLM_MODEL = process.env.LLM_MODEL || 'qwen3:8b';
 
+if (!process.env.TIINGO_API_KEY) {
+  console.warn('Warning: TIINGO_API_KEY not set. Chart data requests will fail.');
+}
+
 // Initialize database and logger
 const db = new Database();
 const apiLogger = new APILogger('openai-api.log');
@@ -76,12 +80,19 @@ app.get('/api/chartdata', async (req, res) => {
       close: d.close
     }));
 
-    const calculateMA = (arr, window) =>
-      arr.map((val, idx) => {
-        if (idx < window - 1) return { ...val, [`ma${window}`]: null };
-        const avg = arr.slice(idx - window + 1, idx + 1).reduce((sum, v) => sum + v.close, 0) / window;
-        return { ...val, [`ma${window}`]: avg };
-      });
+    const calculateMA = (arr, window) => {
+      const result = [];
+      let sum = 0;
+      for (let i = 0; i < arr.length; i++) {
+        sum += arr[i].close;
+        if (i >= window) {
+          sum -= arr[i - window].close;
+        }
+        const ma = i >= window - 1 ? sum / window : null;
+        result.push({ ...arr[i], [`ma${window}`]: ma });
+      }
+      return result;
+    };
 
     const ma50 = calculateMA(data, 50);
     const ma200 = calculateMA(data, 200);
@@ -105,7 +116,7 @@ app.get('/api/chartdata', async (req, res) => {
           if (i === window) {
             avgGain /= window;
             avgLoss /= window;
-            const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+            const rs = avgLoss === 0 ? Infinity : avgGain / avgLoss;
             result.push({ ...arr[i], rsi14: 100 - 100 / (1 + rs) });
           } else {
             result.push({ ...arr[i], rsi14: null });
@@ -113,7 +124,7 @@ app.get('/api/chartdata', async (req, res) => {
         } else {
           avgGain = (avgGain * (window - 1) + gain) / window;
           avgLoss = (avgLoss * (window - 1) + loss) / window;
-          const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+          const rs = avgLoss === 0 ? Infinity : avgGain / avgLoss;
           result.push({ ...arr[i], rsi14: 100 - 100 / (1 + rs) });
         }
       }
